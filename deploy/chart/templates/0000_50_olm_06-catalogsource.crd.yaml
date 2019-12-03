@@ -38,6 +38,7 @@ spec:
   - name: Age
     type: date
     JSONPath: .metadata.creationTimestamp
+  preserveUnknownFields: false
   subresources:
     # status enables the status subresource.
     status: {}
