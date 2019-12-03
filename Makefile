@@ -133,6 +133,22 @@ clean:
 	@rm -rf test/e2e/log
 	@rm -rf e2e.namespace
 
+V1ALPHA1_GEN_PATHS := ./pkg/api/apis/operators/v1alpha1/...
+V1_GEN_PATHS := ./pkg/api/apis/operators/v1/...
+CRD_TEMPLATES :=./deploy/chart/templates
+# Generate manifests for CRDs
+manifests: ensure-controller-gen
+	$(CONTROLLER_GEN) schemapatch:manifests=$(CRD_TEMPLATES) paths=$(V1ALPHA1_GEN_PATHS) output:dir="$(CRD_TEMPLATES)"
+	$(CONTROLLER_GEN) schemapatch:manifests=$(CRD_TEMPLATES) paths=$(V1_GEN_PATHS) output:dir="$(CRD_TEMPLATES)"
+
+ensure-controller-gen:
+ifeq (, $(shell which controller-gen))
+CONTROLLER_GEN=go run -mod=vendor ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
+else
+CONTROLLER_GEN=$(shell which controller-gen)
+endif
+
+
 CI := $(shell find . -iname "*.jsonnet") $(shell find . -iname "*.libsonnet")
 $(CI):
 	jsonnet fmt -i -n 4 $@

@@ -47,6 +47,7 @@ require (
 	k8s.io/kube-aggregator v0.0.0
 	k8s.io/kube-openapi v0.0.0-20190816220812-743ec37842bf
 	k8s.io/kubernetes v1.16.0
+	sigs.k8s.io/controller-tools v0.2.4
 )
 
 replace (
