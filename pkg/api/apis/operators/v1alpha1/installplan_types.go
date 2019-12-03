@@ -228,7 +228,7 @@ type InstallPlan struct {
 	metav1.ObjectMeta `json:"metadata"`
 
 	Spec   InstallPlanSpec   `json:"spec"`
-	Status InstallPlanStatus `json:"status"`
+	Status InstallPlanStatus `json:"status,omitempty"`
 }
 
 // EnsureCatalogSource ensures that a CatalogSource is present in the Status

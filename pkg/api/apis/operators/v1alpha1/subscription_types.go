@@ -76,7 +76,7 @@ type SubscriptionConfig struct {
 	// +patchStrategy=merge
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty" patchMergeKey:"name" patchStrategy:"merge"`
-	
+
 	// List of Volumes to set in the podSpec.
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
@@ -283,7 +283,7 @@ type Subscription struct {
 	metav1.ObjectMeta `json:"metadata"`
 
 	Spec   *SubscriptionSpec  `json:"spec"`
-	Status SubscriptionStatus `json:"status"`
+	Status SubscriptionStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

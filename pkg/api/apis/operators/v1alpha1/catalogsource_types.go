@@ -118,7 +118,7 @@ type CatalogSource struct {
 	metav1.ObjectMeta `json:"metadata"`
 
 	Spec   CatalogSourceSpec   `json:"spec"`
-	Status CatalogSourceStatus `json:"status"`
+	Status CatalogSourceStatus `json:"status,omitempty"`
 }
 
 func (c *CatalogSource) Address() string {
