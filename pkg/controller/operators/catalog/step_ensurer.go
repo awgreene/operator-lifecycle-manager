@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"context"
 
 	errorwrap "github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -14,12 +16,14 @@ import (
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/operatorclient"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/ownerutil"
+	controllerruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func newStepEnsurer(kubeClient operatorclient.ClientInterface, crClient versioned.Interface) *StepEnsurer {
+func newStepEnsurer(kubeClient operatorclient.ClientInterface, crClient versioned.Interface, cRuntimeClient controllerruntimeclient.Client) *StepEnsurer {
 	return &StepEnsurer{
 		kubeClient: kubeClient,
 		crClient:   crClient,
+		cRuntimeClient: cRuntimeClient,
 	}
 }
 
@@ -27,6 +31,7 @@ func newStepEnsurer(kubeClient operatorclient.ClientInterface, crClient versione
 type StepEnsurer struct {
 	kubeClient operatorclient.ClientInterface
 	crClient   versioned.Interface
+	cRuntimeClient controllerruntimeclient.Client
 }
 
 // EnsureClusterServiceVersion writes the specified ClusterServiceVersion
@@ -258,6 +263,30 @@ func (o *StepEnsurer) EnsureRoleBinding(namespace string, rb *rbacv1.RoleBinding
 	rb.SetNamespace(namespace)
 	if _, updateErr := o.kubeClient.UpdateRoleBinding(rb); updateErr != nil {
 		err = errorwrap.Wrapf(updateErr, "error updating rolebinding %s", rb.GetName())
+		return
+	}
+
+	status = v1alpha1.StepStatusPresent
+	return
+}
+
+
+// EnsureUnstructuredObject writes the unspecified object to the cluster.
+func (o *StepEnsurer) EnsureUnstructuredObject(namespace string, obj *unstructured.Unstructured) (status v1alpha1.StepStatus, err error) {
+	createErr := o.cRuntimeClient.Create(context.TODO(),obj, &controllerruntimeclient.CreateOptions{})
+	if createErr == nil {
+		status = v1alpha1.StepStatusCreated
+		return
+	}
+
+	if !k8serrors.IsAlreadyExists(createErr) {
+		err = errorwrap.Wrapf(createErr, "error creating unstructured object %s", obj.GetName())
+		return
+	}
+
+	obj.SetNamespace(namespace)
+	if updateErr := o.cRuntimeClient.Update(context.TODO(),obj, &controllerruntimeclient.UpdateOptions{}); updateErr != nil {
+		err = errorwrap.Wrapf(updateErr, "error updating unstructured object %s", obj.GetName())
 		return
 	}
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/operatorclient"
+	controllerruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // NewFactory returns a new instance of Factory.
@@ -36,6 +37,14 @@ func (f *Factory) NewKubernetesClient(token string) (client versioned.Interface,
 	scoped := copy(f.config, token)
 	client, err = versioned.NewForConfig(scoped)
 
+	return
+}
+
+// NewControllerRuntimeClient return a new instance of Controller Runtime Client from the bearer
+// token specified.
+func (f *Factory) NewControllerRuntimeClient(token string) (cRuntimeClient controllerruntimeclient.Client, err error) {
+	scoped := copy(f.config, token)
+	cRuntimeClient, err = controllerruntimeclient.New(scoped, controllerruntimeclient.Options{})
 	return
 }
 

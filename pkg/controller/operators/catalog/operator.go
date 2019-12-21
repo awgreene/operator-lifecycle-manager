@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"reflect"
+	"strings"
 	"time"
 
 	errorwrap "github.com/pkg/errors"
@@ -28,6 +31,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
+	controllerruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/controller/registry/grpc"
 	sharedtime "github.com/operator-framework/operator-lifecycle-manager/pkg/lib/time"
@@ -56,6 +60,8 @@ const (
 	clusterRoleBindingKind = "ClusterRoleBinding"
 	serviceAccountKind     = "ServiceAccount"
 	serviceKind            = "Service"
+	serviceMonitorKind     = "ServiceMonitor"
+	prometheusRuleKind     = "PrometheusRule"
 	roleKind               = "Role"
 	roleBindingKind        = "RoleBinding"
 	generatedByKey         = "olm.generated-by"
@@ -70,6 +76,7 @@ type Operator struct {
 	clock                    utilclock.Clock
 	opClient                 operatorclient.ClientInterface
 	client                   versioned.Interface
+	cRuntimeClient       controllerruntimeclient.Client
 	dynamicClient            dynamic.Interface
 	lister                   operatorlister.OperatorLister
 	catsrcQueueSet           *queueinformer.ResourceQueueSet
@@ -107,6 +114,11 @@ func NewOperator(ctx context.Context, kubeconfigPath string, clock utilclock.Clo
 		return nil, err
 	}
 
+	cRuntimeClient, err := controllerruntimeclient.New(config,controllerruntimeclient.Options{})
+	if err != nil {
+		return nil, err
+	}
+	
 	// Create a new client for dynamic types (CRs)
 	dynamicClient, err := dynamic.NewForConfig(config)
 	if err != nil {
@@ -129,6 +141,7 @@ func NewOperator(ctx context.Context, kubeconfigPath string, clock utilclock.Clo
 		logger:                   logger,
 		clock:                    clock,
 		opClient:                 opClient,
+		cRuntimeClient:           cRuntimeClient,
 		dynamicClient:            dynamicClient,
 		client:                   crClient,
 		lister:                   lister,
@@ -139,7 +152,7 @@ func NewOperator(ctx context.Context, kubeconfigPath string, clock utilclock.Clo
 		csvProvidedAPIsIndexer:   map[string]cache.Indexer{},
 		catalogSubscriberIndexer: map[string]cache.Indexer{},
 		serviceAccountQuerier:    scoped.NewUserDefinedServiceAccountQuerier(logger, crClient),
-		clientAttenuator:         scoped.NewClientAttenuator(logger, config, opClient, crClient),
+		clientAttenuator:         scoped.NewClientAttenuator(logger, config, opClient, crClient, cRuntimeClient),
 	}
 	op.sources = grpc.NewSourceStore(logger, 10*time.Second, 10*time.Minute, op.syncSourceState)
 	op.reconciler = reconciler.NewRegistryReconcilerFactory(lister, opClient, configmapRegistryImage, op.now)
@@ -1285,13 +1298,13 @@ func (o *Operator) ExecutePlan(plan *v1alpha1.InstallPlan) error {
 	// Does the namespace have an operator group that specifies a user defined
 	// service account? If so, then we should use a scoped client for plan
 	// execution.
-	kubeclient, crclient, err := o.clientAttenuator.AttenuateClientWithServiceAccount(plan.Status.AttenuatedServiceAccountRef)
+	kubeclient, crclient, cRuntimeCient, err := o.clientAttenuator.AttenuateClientWithServiceAccount(plan.Status.AttenuatedServiceAccountRef)
 	if err != nil {
 		o.logger.Errorf("failed to get a client for plan execution- %v", err)
 		return err
 	}
 
-	ensurer := newStepEnsurer(kubeclient, crclient)
+	ensurer := newStepEnsurer(kubeclient, crclient, cRuntimeCient)
 
 	for i, step := range plan.Status.Plan {
 		switch step.Status {
@@ -1553,6 +1566,31 @@ func (o *Operator) ExecutePlan(plan *v1alpha1.InstallPlan) error {
 					return err
 				}
 
+				plan.Status.Plan[i].Status = status
+
+			case serviceMonitorKind, prometheusRuleKind:
+				// Entering unstructured territory... To infinity and beyond!
+
+				// Marshal the manifest into an unstructured object
+				logrus.Infof("Converting type %s to unstructured object", step.Resource.Kind)
+				dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(step.Resource.Manifest), 10)
+				unstructuredObject := &unstructured.Unstructured{}
+				if err := dec.Decode(unstructuredObject); err != nil {
+					return errorwrap.Wrapf(err, "error decoding %s object to an unstructured object: %s", step.Resource.Name)
+				}
+
+				// Update UIDs on all CSV OwnerReferences
+				updated, err := o.getUpdatedOwnerReferences(unstructuredObject.GetOwnerReferences(), plan.Namespace)
+				if err != nil {
+					return errorwrap.Wrapf(err, "error generating ownerrefs for unstructured object: %s", unstructuredObject.GetName())
+				}
+				unstructuredObject.SetOwnerReferences(updated)
+				unstructuredObject.SetNamespace(namespace)
+
+				status, err := ensurer.EnsureUnstructuredObject(namespace, unstructuredObject)
+				if err != nil {
+					return err
+				}
 				plan.Status.Plan[i].Status = status
 
 			default:

@@ -6,6 +6,7 @@ import (
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/operatorclient"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/scopedclient"
+	controllerruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
@@ -16,11 +17,12 @@ var (
 )
 
 // NewClientAttenuator returns a new instance of ClientAttenuator.
-func NewClientAttenuator(logger *logrus.Logger, config *rest.Config, kubeclient operatorclient.ClientInterface, crclient versioned.Interface) *ClientAttenuator {
+func NewClientAttenuator(logger *logrus.Logger, config *rest.Config, kubeclient operatorclient.ClientInterface, crclient versioned.Interface, cRuntimeClient controllerruntimeclient.Client) *ClientAttenuator {
 	return &ClientAttenuator{
 		logger:     logger,
 		kubeclient: kubeclient,
 		crclient:   crclient,
+		cRuntimeClient: cRuntimeClient,
 		factory:    scopedclient.NewFactory(config),
 		retriever: &BearerTokenRetriever{
 			kubeclient: kubeclient,
@@ -45,6 +47,9 @@ type ClientAttenuator struct {
 	// default CR client used by the operator.
 	crclient versioned.Interface
 
+	// default Controller Client Runtime used by the operator.
+	cRuntimeClient controllerruntimeclient.Client
+
 	factory   *scopedclient.Factory
 	retriever *BearerTokenRetriever
 	logger    *logrus.Logger
@@ -55,11 +60,12 @@ type ClientAttenuator struct {
 // client(s) that are bound to OLM cluster-admin role are returned if the querier
 // returns no error and reference to a service account is nil.
 // Otherwise an attempt is made to return attenuated client instance(s).
-func (s *ClientAttenuator) AttenuateClientWithServiceAccount(reference *corev1.ObjectReference) (kubeclient operatorclient.ClientInterface, crclient versioned.Interface, err error) {
+func (s *ClientAttenuator) AttenuateClientWithServiceAccount(reference *corev1.ObjectReference) (kubeclient operatorclient.ClientInterface, crclient versioned.Interface, cRuntimeClient controllerruntimeclient.Client, err error) {
 	if reference == nil {
 		// No service account/token has been provided. Return the default client(s).
 		kubeclient = s.kubeclient
 		crclient = s.crclient
+		cRuntimeClient = s.cRuntimeClient
 		return
 	}
 
@@ -78,6 +84,10 @@ func (s *ClientAttenuator) AttenuateClientWithServiceAccount(reference *corev1.O
 	if err != nil {
 		return
 	}
+	cRuntimeClient, err = s.factory.NewControllerRuntimeClient(token)
+	if err != nil {
+		return
+	}
 
 	return
 }
@@ -87,7 +97,7 @@ func (s *ClientAttenuator) AttenuateClientWithServiceAccount(reference *corev1.O
 // client(s) that are bound to OLM cluster-admin role are returned if the querier
 // returns no error and reference to a service account is nil.
 // Otherwise an attempt is made to return attenuated client instance(s).
-func (s *ClientAttenuator) AttenuateClient(querier ServiceAccountQuerierFunc) (kubeclient operatorclient.ClientInterface, crclient versioned.Interface, err error) {
+func (s *ClientAttenuator) AttenuateClient(querier ServiceAccountQuerierFunc) (kubeclient operatorclient.ClientInterface, crclient versioned.Interface, cRuntimeClient controllerruntimeclient.Client, err error) {
 	if querier == nil {
 		err = errQuerierNotSpecified
 		return
