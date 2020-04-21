@@ -1358,6 +1358,8 @@ func (a *Operator) transitionCSVState(in v1alpha1.ClusterServiceVersion) (out *v
 			return
 		}
 
+		// ALEX: Here?
+
 		if syncError = installer.Install(strategy); syncError != nil {
 			if install.IsErrorUnrecoverable(syncError) {
 				logger.Infof("Setting CSV reason to failed without retry: %v", syncError)
@@ -1582,10 +1584,12 @@ func (a *Operator) updateInstallStatus(csv *v1alpha1.ClusterServiceVersion, inst
 	apiServicesInstalled, apiServiceErr := a.areAPIServicesAvailable(csv)
 	strategyInstalled, strategyErr := installer.CheckInstalled(strategy)
 	now := a.now()
+	a.logger.Info("Alex: Here 1")
 
 	if strategyErr != nil {
 		a.logger.WithError(strategyErr).Debug("operator not installed")
 	}
+	a.logger.Info("Alex: Here 2")
 
 	if strategyInstalled && apiServicesInstalled {
 		// if there's no error, we're successfully running
@@ -1593,16 +1597,22 @@ func (a *Operator) updateInstallStatus(csv *v1alpha1.ClusterServiceVersion, inst
 		return nil
 	}
 
+	a.logger.Info("Alex: Here 3")
+
 	// installcheck determined we can't progress (e.g. deployment failed to come up in time)
 	if install.IsErrorUnrecoverable(strategyErr) {
 		csv.SetPhaseWithEventIfChanged(v1alpha1.CSVPhaseFailed, v1alpha1.CSVReasonInstallCheckFailed, fmt.Sprintf("install failed: %s", strategyErr), now, a.recorder)
 		return strategyErr
 	}
 
+	a.logger.Info("Alex: Here 4")
+
 	if apiServiceErr != nil {
 		csv.SetPhaseWithEventIfChanged(v1alpha1.CSVPhaseFailed, v1alpha1.CSVReasonAPIServiceInstallFailed, fmt.Sprintf("APIService install failed: %s", apiServiceErr), now, a.recorder)
 		return apiServiceErr
 	}
+
+	a.logger.Info("Alex: Here 5")
 
 	if !apiServicesInstalled {
 		csv.SetPhaseWithEventIfChanged(requeuePhase, requeueConditionReason, fmt.Sprintf("APIServices not installed"), now, a.recorder)
@@ -1613,15 +1623,25 @@ func (a *Operator) updateInstallStatus(csv *v1alpha1.ClusterServiceVersion, inst
 		return fmt.Errorf("APIServices not installed")
 	}
 
+	a.logger.Info("Alex: Here 6")
+
 	if strategyErr != nil {
-		csv.SetPhaseWithEventIfChanged(requeuePhase, requeueConditionReason, fmt.Sprintf("installing: %s", strategyErr), now, a.recorder)
+		if install.ReasonForError(strategyErr) == install.StrategyErrDeploymentUpdated {
+			csv.SetPhaseWithEventIfChanged(v1alpha1.CSVPhaseInstallReady, requeueConditionReason, fmt.Sprintf("installing: %s", strategyErr), now, a.recorder)
+			a.logger.Infof("Alex: Here 7")
+		} else {
+			csv.SetPhaseWithEventIfChanged(requeuePhase, requeueConditionReason, fmt.Sprintf("installing: %s", strategyErr), now, a.recorder)
+			a.logger.Infof("Alex: Here 8")
+		}
 		if err := a.csvQueueSet.Requeue(csv.GetNamespace(), csv.GetName()); err != nil {
 			a.logger.Warn(err.Error())
 		}
 
+		a.logger.Infof("Alex: Here 9 - strategy error: %v", strategyErr)
 		return strategyErr
 	}
 
+	a.logger.Info("Alex: Here 10")
 	return nil
 }
 

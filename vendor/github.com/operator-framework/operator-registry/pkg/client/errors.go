@@ -46,11 +46,11 @@ func IsErrorUnrecoverable(err error) bool {
 	if err == nil {
 		return false
 	}
-	_, ok := unrecoverableErrors[reasonForError(err)]
+	_, ok := unrecoverableErrors[ReasonForError(err)]
 	return ok
 }
 
-func reasonForError(err error) HealthErrorReason {
+func ReasonForError(err error) HealthErrorReason {
 	switch t := err.(type) {
 	case HealthError:
 		return t.Reason

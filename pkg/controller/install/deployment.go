@@ -72,7 +72,7 @@ func NewStrategyDeploymentInstaller(strategyClient wrappers.InstallStrategyDeplo
 func (i *StrategyDeploymentInstaller) installDeployments(deps []v1alpha1.StrategyDeploymentSpec) error {
 	for _, d := range deps {
 		deployment, _, err := i.deploymentForSpec(d.Name, d.Spec)
-		if err != nil {
+		if err != nil && err.Error() != StrategyErrDeploymentUpdated {
 			return err
 		}
 
@@ -107,7 +107,9 @@ func (i *StrategyDeploymentInstaller) deploymentForSpec(name string, spec appsv1
 		return
 	}
 
+	log.Infof("ALEX: Deployment: %v", dep.Spec)
 	hash = HashDeploymentSpec(dep.Spec)
+	log.Infof("ALEX: Hash: %s", hash)
 	dep.Labels[DeploymentSpecHashLabelKey] = hash
 	deployment = dep
 	return
