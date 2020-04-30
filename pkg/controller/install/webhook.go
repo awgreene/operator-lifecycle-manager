@@ -3,15 +3,17 @@ package install
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
+	hashutil "github.com/operator-framework/operator-lifecycle-manager/pkg/lib/kubernetes/pkg/util/hash"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/ownerutil"
 
 	log "github.com/sirupsen/logrus"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/rand"
 )
 
 func ValidWebhookRules(rules []admissionregistrationv1.RuleWithOperations) error {
@@ -69,80 +71,115 @@ func (i *StrategyDeploymentInstaller) createOrUpdateWebhook(caPEM []byte, desc v
 }
 
 func (i *StrategyDeploymentInstaller) createOrUpdateMutatingWebhook(ogNamespacelabelSelector *metav1.LabelSelector, caPEM []byte, desc v1alpha1.WebhookDescription) error {
-	webhooks := []admissionregistrationv1.MutatingWebhook{
-		desc.GetMutatingWebhook(i.owner.GetNamespace(), ogNamespacelabelSelector, caPEM),
-	}
-	existingHook, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().Get(context.TODO(), desc.Name, metav1.GetOptions{})
-	if err == nil {
-		// Check if the only owners are this CSV or in this CSV's replacement chain
-		if ownerutil.Adoptable(i.owner, existingHook.GetOwnerReferences()) {
-			ownerutil.AddNonBlockingOwner(existingHook, i.owner)
-		}
+	webhookLabels := ownerutil.OwnerLabel(i.owner, i.owner.GetObjectKind().GroupVersionKind().Kind)
+	webhookLabels[WebhookLabelKey] = HashWebhookDesc(desc)
+	webhookSelector := labels.SelectorFromSet(webhookLabels).String()
 
-		// Update the list of webhooks
-		existingHook.Webhooks = webhooks
-
-		// Attempt an update
-		if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().Update(context.TODO(), existingHook, metav1.UpdateOptions{}); err != nil {
-			log.Warnf("could not update MutatingWebhookConfiguration %s", existingHook.GetName())
-			return err
-		}
-	} else if k8serrors.IsNotFound(err) {
-		hook := admissionregistrationv1.MutatingWebhookConfiguration{
-			ObjectMeta: metav1.ObjectMeta{Name: desc.Name,
-				Namespace: i.owner.GetNamespace(),
-			},
-			Webhooks: webhooks,
-		}
-		// Add an owner
-		ownerutil.AddNonBlockingOwner(&hook, i.owner)
-		if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().Create(context.TODO(), &hook, metav1.CreateOptions{}); err != nil {
-			log.Errorf("Webhooks: Error creating mutating MutatingVebhookConfiguration: %v", err)
-			return err
-		}
-	} else {
+	existingWebhooks, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
+	if err != nil {
 		return err
 	}
 
+	if len(existingWebhooks.Items) == 0 {
+		// Create a ValidatingWebhookConfiguration
+		hook := admissionregistrationv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: desc.Name + "-",
+				Namespace:    i.owner.GetNamespace(),
+				Labels:       ownerutil.OwnerLabel(i.owner, i.owner.GetObjectKind().GroupVersionKind().Kind),
+			},
+			Webhooks: []admissionregistrationv1.MutatingWebhook{
+				desc.GetMutatingWebhook(i.owner.GetNamespace(), ogNamespacelabelSelector, caPEM),
+			},
+		}
+		addWebhookLabels(&hook, desc)
+
+		if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().Create(context.TODO(), &hook, metav1.CreateOptions{}); err != nil {
+			log.Errorf("Webhooks: Error creating ValidationWebhookConfiguration: %v", err)
+			return err
+		}
+	} else {
+		for _, webhook := range existingWebhooks.Items {
+			// Update the list of webhooks
+			webhook.Webhooks = []admissionregistrationv1.MutatingWebhook{
+				desc.GetMutatingWebhook(i.owner.GetNamespace(), ogNamespacelabelSelector, caPEM),
+			}
+
+			// Attempt an update
+			if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().Update(context.TODO(), &webhook, metav1.UpdateOptions{}); err != nil {
+				log.Warnf("could not update MutatingWebhookConfiguration %s", webhook.GetName())
+				return err
+			}
+
+		}
+	}
 	return nil
 }
 
 func (i *StrategyDeploymentInstaller) createOrUpdateValidatingWebhook(ogNamespacelabelSelector *metav1.LabelSelector, caPEM []byte, desc v1alpha1.WebhookDescription) error {
-	webhooks := []admissionregistrationv1.ValidatingWebhook{
-		desc.GetValidatingWebhook(i.owner.GetNamespace(), ogNamespacelabelSelector, caPEM),
+	webhookLabels := ownerutil.OwnerLabel(i.owner, i.owner.GetObjectKind().GroupVersionKind().Kind)
+	webhookLabels[WebhookLabelKey] = HashWebhookDesc(desc)
+	webhookSelector := labels.SelectorFromSet(webhookLabels).String()
+
+	existingWebhooks, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
+	if err != nil {
+		return err
 	}
-	existingHook, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(context.TODO(), desc.Name, metav1.GetOptions{})
-	if err == nil {
-		// Check if the only owners are this CSV or in this CSV's replacement chain
-		if ownerutil.Adoptable(i.owner, existingHook.GetOwnerReferences()) {
-			ownerutil.AddNonBlockingOwner(existingHook, i.owner)
-		}
 
-		// Update the list of webhooks
-		existingHook.Webhooks = webhooks
-
-		// Attempt an update
-		if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().Update(context.TODO(), existingHook, metav1.UpdateOptions{}); err != nil {
-			log.Warnf("could not update ValidatingWebhookConfiguration %s", existingHook.GetName())
-			return err
-		}
-	} else if k8serrors.IsNotFound(err) {
+	if len(existingWebhooks.Items) == 0 {
 		// Create a ValidatingWebhookConfiguration
 		hook := admissionregistrationv1.ValidatingWebhookConfiguration{
-			ObjectMeta: metav1.ObjectMeta{Name: desc.Name,
-				Namespace: i.owner.GetNamespace(),
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: desc.Name + "-",
+				Namespace:    i.owner.GetNamespace(),
+				Labels:       ownerutil.OwnerLabel(i.owner, i.owner.GetObjectKind().GroupVersionKind().Kind),
 			},
-			Webhooks: webhooks,
+			Webhooks: []admissionregistrationv1.ValidatingWebhook{
+				desc.GetValidatingWebhook(i.owner.GetNamespace(), ogNamespacelabelSelector, caPEM),
+			},
 		}
+		addWebhookLabels(&hook, desc)
 
-		// Add an owner
-		ownerutil.AddNonBlockingOwner(&hook, i.owner)
 		if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().Create(context.TODO(), &hook, metav1.CreateOptions{}); err != nil {
-			log.Errorf("Webhooks: Error create creating ValidationVebhookConfiguration: %v", err)
+			log.Errorf("Webhooks: Error creating ValidatingWebhookConfiguration: %v", err)
 			return err
 		}
 	} else {
-		return err
+		for _, webhook := range existingWebhooks.Items {
+
+			// Update the list of webhooks
+			webhook.Webhooks = []admissionregistrationv1.ValidatingWebhook{
+				desc.GetValidatingWebhook(i.owner.GetNamespace(), ogNamespacelabelSelector, caPEM),
+			}
+
+			// Attempt an update
+			if _, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().Update(context.TODO(), &webhook, metav1.UpdateOptions{}); err != nil {
+				log.Warnf("could not update ValidatingWebhookConfiguration %s", webhook.GetName())
+				return err
+			}
+
+		}
 	}
 	return nil
+}
+
+const WebhookLabelKey = "webhookDescriptionSHA"
+
+// addWebhookLabels adds webhook labels to an object
+func addWebhookLabels(object metav1.Object, webhookDesc v1alpha1.WebhookDescription) error {
+	labels := object.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[WebhookLabelKey] = HashWebhookDesc(webhookDesc)
+	object.SetLabels(labels)
+
+	return nil
+}
+
+// HashWebhookDesc calculates a hash given a webhookDescription
+func HashWebhookDesc(webhookDesc v1alpha1.WebhookDescription) string {
+	hasher := fnv.New32a()
+	hashutil.DeepHashObject(hasher, &webhookDesc)
+	return rand.SafeEncodeString(fmt.Sprint(hasher.Sum32()))
 }

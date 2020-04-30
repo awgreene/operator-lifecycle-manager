@@ -11,6 +11,7 @@ import (
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/kubestate"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	extinf "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
@@ -632,6 +633,44 @@ func (a *Operator) syncGCObject(obj interface{}) (syncError error) {
 			break
 		}
 		logger.Debugf("Deleted cluster role binding %v due to no owning CSV", metaObj.GetName())
+	case *admissionregistrationv1.MutatingWebhookConfiguration:
+		if name, ns, ok := ownerutil.GetOwnerByKindLabel(metaObj, v1alpha1.ClusterServiceVersionKind); ok {
+			_, err := a.lister.OperatorsV1alpha1().ClusterServiceVersionLister().ClusterServiceVersions(ns).Get(name)
+			if err == nil {
+				logger.Debugf("CSV still present, must wait until it is deleted (owners=%v)", name)
+				syncError = fmt.Errorf("cleanup must wait")
+				return
+			} else if !k8serrors.IsNotFound(err) {
+				logger.Infof("error CSV retrieval error")
+				syncError = err
+				return
+			}
+		}
+
+		if err := a.opClient.KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(context.TODO(), metaObj.GetName(), metav1.DeleteOptions{}); err != nil {
+			logger.WithError(err).Warn("cannot delete MutatingWebhookConfiguration")
+			break
+		}
+		logger.Debugf("Deleted MutatingWebhookConfiguration %v due to no owning CSV", metaObj.GetName())
+	case *admissionregistrationv1.ValidatingWebhookConfiguration:
+		if name, ns, ok := ownerutil.GetOwnerByKindLabel(metaObj, v1alpha1.ClusterServiceVersionKind); ok {
+			_, err := a.lister.OperatorsV1alpha1().ClusterServiceVersionLister().ClusterServiceVersions(ns).Get(name)
+			if err == nil {
+				logger.Debugf("CSV still present, must wait until it is deleted (owners=%v)", name)
+				syncError = fmt.Errorf("cleanup must wait")
+				return
+			} else if !k8serrors.IsNotFound(err) {
+				logger.Infof("Error CSV retrieval error")
+				syncError = err
+				return
+			}
+		}
+
+		if err := a.opClient.KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(context.TODO(), metaObj.GetName(), metav1.DeleteOptions{}); err != nil {
+			logger.WithError(err).Warn("cannot delete ValidatingWebhookConfiguration")
+			break
+		}
+		logger.Debugf("Deleted ValidatingWebhookConfiguration %v due to no owning CSV", metaObj.GetName())
 	}
 
 	return
@@ -919,6 +958,25 @@ func (a *Operator) handleClusterServiceVersionDeletion(obj interface{}) {
 	for _, cr := range crs {
 		syncError := a.objGCQueueSet.RequeueEvent("", kubestate.NewResourceEvent(kubestate.ResourceUpdated, cr))
 		logger.Debugf("handleCSVdeletion - requeued update event for %v, res=%v", cr, syncError)
+	}
+
+	webhookSelector := labels.SelectorFromSet(ownerutil.OwnerLabel(clusterServiceVersion, v1alpha1.ClusterServiceVersionKind)).String()
+	mWebhooks, err := a.opClient.KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
+	if err != nil {
+		logger.WithError(err).Warn("cannot list MutatingWebhookConfigurations")
+	}
+	for _, webhook := range mWebhooks.Items {
+		syncError := a.objGCQueueSet.RequeueEvent("", kubestate.NewResourceEvent(kubestate.ResourceUpdated, &webhook))
+		logger.Debugf("handleCSVdeletion - requeued update event for %v, res=%v", webhook, syncError)
+	}
+
+	vWebhooks, err := a.opClient.KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
+	if err != nil {
+		logger.WithError(err).Warn("cannot list MutatingWebhookConfigurations")
+	}
+	for _, webhook := range vWebhooks.Items {
+		syncError := a.objGCQueueSet.RequeueEvent("", kubestate.NewResourceEvent(kubestate.ResourceUpdated, &webhook))
+		logger.Debugf("handleCSVdeletion - requeued update event for %v, res=%v", webhook, syncError)
 	}
 }
 
