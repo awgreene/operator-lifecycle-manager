@@ -258,6 +258,48 @@ func (a *Operator) areAPIServicesAvailable(csv *v1alpha1.ClusterServiceVersion) 
 	return true, nil
 }
 
+func (a *Operator) areWebhooksAvailable(csv *v1alpha1.ClusterServiceVersion) (bool, error) {
+	for _, desc := range csv.Spec.WebhookDefinitions {
+		webhookLabels := ownerutil.OwnerLabel(csv, v1alpha1.ClusterServiceVersionKind)
+		webhookLabels[install.WebhookDescKey] = desc.Name
+		webhookSelector := labels.SelectorFromSet(webhookLabels).String()
+		switch desc.Type {
+		case v1alpha1.ValidatingAdmissionWebhook:
+			webhookList, err := a.opClient.KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
+			if err != nil {
+				return false, err
+			}
+			if len(webhookList.Items) == 0 {
+				return false, nil
+			}
+			for _, webhook := range webhookList.Items {
+				if webhook.GetLabels()[install.DeploymentSpecHashLabelKey] == install.HashWebhookDesc(desc) {
+					return true, nil
+				}
+				return false, nil
+			}
+		case v1alpha1.MutatingAdmissionWebhook:
+			webhookList, err := a.opClient.KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
+			if err != nil {
+				return false, err
+			}
+
+			if len(webhookList.Items) == 0 {
+				return false, nil
+			}
+
+			for _, webhook := range webhookList.Items {
+				if webhook.GetLabels()[install.DeploymentSpecHashLabelKey] == install.HashWebhookDesc(desc) {
+					return true, nil
+				}
+				return false, nil
+			}
+		}
+	}
+
+	return true, nil
+}
+
 // updateDeploymentSpecsWithApiServiceData transforms an install strategy to include information about apiservices
 // it is used in generating hashes for deployment specs to know when something in the spec has changed,
 // but duplicates a lot of installAPIServiceRequirements and should be refactored.

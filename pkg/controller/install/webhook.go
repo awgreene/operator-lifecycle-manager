@@ -65,14 +65,13 @@ func (i *StrategyDeploymentInstaller) createOrUpdateWebhook(caPEM []byte, desc v
 		i.createOrUpdateValidatingWebhook(ogNamespacelabelSelector, caPEM, desc)
 	case v1alpha1.MutatingAdmissionWebhook:
 		i.createOrUpdateMutatingWebhook(ogNamespacelabelSelector, caPEM, desc)
-
 	}
 	return nil
 }
 
 func (i *StrategyDeploymentInstaller) createOrUpdateMutatingWebhook(ogNamespacelabelSelector *metav1.LabelSelector, caPEM []byte, desc v1alpha1.WebhookDescription) error {
 	webhookLabels := ownerutil.OwnerLabel(i.owner, i.owner.GetObjectKind().GroupVersionKind().Kind)
-	webhookLabels[WebhookLabelKey] = HashWebhookDesc(desc)
+	webhookLabels[WebhookDescKey] = desc.Name
 	webhookSelector := labels.SelectorFromSet(webhookLabels).String()
 
 	existingWebhooks, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().MutatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
@@ -118,7 +117,7 @@ func (i *StrategyDeploymentInstaller) createOrUpdateMutatingWebhook(ogNamespacel
 
 func (i *StrategyDeploymentInstaller) createOrUpdateValidatingWebhook(ogNamespacelabelSelector *metav1.LabelSelector, caPEM []byte, desc v1alpha1.WebhookDescription) error {
 	webhookLabels := ownerutil.OwnerLabel(i.owner, i.owner.GetObjectKind().GroupVersionKind().Kind)
-	webhookLabels[WebhookLabelKey] = HashWebhookDesc(desc)
+	webhookLabels[WebhookDescKey] = desc.Name
 	webhookSelector := labels.SelectorFromSet(webhookLabels).String()
 
 	existingWebhooks, err := i.strategyClient.GetOpClient().KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
@@ -163,7 +162,8 @@ func (i *StrategyDeploymentInstaller) createOrUpdateValidatingWebhook(ogNamespac
 	return nil
 }
 
-const WebhookLabelKey = "webhookDescriptionSHA"
+const WebhookHashKey = "webhookDescriptionSHA"
+const WebhookDescKey = "webhookDescriptionName"
 
 // addWebhookLabels adds webhook labels to an object
 func addWebhookLabels(object metav1.Object, webhookDesc v1alpha1.WebhookDescription) error {
@@ -171,7 +171,8 @@ func addWebhookLabels(object metav1.Object, webhookDesc v1alpha1.WebhookDescript
 	if labels == nil {
 		labels = map[string]string{}
 	}
-	labels[WebhookLabelKey] = HashWebhookDesc(webhookDesc)
+	labels[WebhookDescKey] = webhookDesc.Name
+	labels[WebhookHashKey] = HashWebhookDesc(webhookDesc)
 	object.SetLabels(labels)
 
 	return nil

@@ -115,6 +115,7 @@ var _ = FDescribe("CSVs with a Webhook", func() {
 		})
 		It("Creates Webhooks scoped to a single namespace", func() {
 			sideEffect := admissionregistrationv1.SideEffectClassNone
+			timeout := int32(30)
 			webhook := v1alpha1.WebhookDescription{
 				Name:                    webhookName,
 				Type:                    v1alpha1.ValidatingAdmissionWebhook,
@@ -122,6 +123,7 @@ var _ = FDescribe("CSVs with a Webhook", func() {
 				ContainerPort:           443,
 				AdmissionReviewVersions: []string{"v1beta1", "v1"},
 				SideEffects:             &sideEffect,
+				TimeoutSeconds:          &timeout,
 			}
 
 			csv := createCSVWithWebhook(namespace.GetName(), webhook)
@@ -140,6 +142,34 @@ var _ = FDescribe("CSVs with a Webhook", func() {
 				MatchExpressions: []metav1.LabelSelectorRequirement(nil),
 			}
 			Expect(actualWebhook.Webhooks[0].NamespaceSelector).Should(Equal(expected))
+
+			// Update
+			newTimeout := int32(5)
+			// Update the csv
+			Eventually(func() (bool, error) {
+				existingCSV, err := crc.OperatorsV1alpha1().ClusterServiceVersions(namespace.Name).Get(context.TODO(), csv.GetName(), metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				existingCSV.Spec.WebhookDefinitions[0].TimeoutSeconds = &newTimeout
+
+				existingCSV, err = crc.OperatorsV1alpha1().ClusterServiceVersions(namespace.Name).Update(context.TODO(), existingCSV, metav1.UpdateOptions{})
+				if err != nil {
+					return false, nil
+				}
+				return true, nil
+			}, time.Minute, 5*time.Second).Should(BeTrue())
+			Eventually(func() (bool, error) {
+				actualWebhook, err = getWebhookWithGenName(c, webhook)
+				if err != nil {
+					return false, err
+				}
+
+				if actualWebhook.Webhooks[0].TimeoutSeconds != &newTimeout {
+					return false, nil
+				}
+				return true, nil
+			}, time.Minute, 5*time.Second).Should(BeTrue())
 		})
 		It("Fails if the webhooks intercepts all resources", func() {
 			sideEffect := admissionregistrationv1.SideEffectClassNone
@@ -489,7 +519,7 @@ var _ = FDescribe("CSVs with a Webhook", func() {
 })
 
 func getWebhookWithGenName(c operatorclient.ClientInterface, desc v1alpha1.WebhookDescription) (*admissionregistrationv1.ValidatingWebhookConfiguration, error) {
-	webhookSelector := labels.SelectorFromSet(map[string]string{install.WebhookLabelKey: install.HashWebhookDesc(desc)}).String()
+	webhookSelector := labels.SelectorFromSet(map[string]string{install.WebhookDescKey: desc.Name}).String()
 	existingWebhooks, err := c.KubernetesInterface().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(context.TODO(), metav1.ListOptions{LabelSelector: webhookSelector})
 	if err != nil {
 		return nil, err
