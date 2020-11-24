@@ -75,6 +75,12 @@ var _ = Describe("Subscription", func() {
 		csv, err := fetchCSV(crc, subscription.Status.CurrentCSV, testNamespace, buildCSVConditionChecker(v1alpha1.CSVPhaseSucceeded))
 		require.NoError(GinkgoT(), err)
 
+		// Ensure that the OperatorCondition was created for the CSV.
+		Eventually(func() error {
+			_, err = crc.OperatorsV1().OperatorConditions(csv.GetNamespace()).Get(context.TODO(), csv.GetName(), metav1.GetOptions{})
+			return err
+		}).Should(BeNil())
+
 		// Check for the olm.package property as a proxy for
 		// verifying that the annotation value is reasonable.
 		Expect(

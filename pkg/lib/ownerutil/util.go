@@ -45,6 +45,17 @@ func IsOwnedBy(object metav1.Object, owner Owner) bool {
 	return false
 }
 
+func HasOwnerReference(object metav1.Object, owner metav1.OwnerReference) bool {
+	for _, oref := range object.GetOwnerReferences() {
+		if oref.UID == owner.UID &&
+			oref.Name == owner.Name &&
+			oref.Kind == owner.Kind {
+			return true
+		}
+	}
+	return false
+}
+
 func IsOwnedByLabel(object metav1.Object, owner Owner) bool {
 	kind := owner.GetObjectKind().GroupVersionKind().Kind
 	name, namespace, ok := GetOwnerByKindLabel(object, kind)

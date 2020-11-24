@@ -50,6 +50,7 @@ require (
 	k8s.io/klog v1.0.0
 	k8s.io/kube-aggregator v0.19.3
 	k8s.io/kube-openapi v0.0.0-20200805222855-6aeccd4b50c6
+	k8s.io/kubernetes v1.13.0
 	rsc.io/letsencrypt v0.0.3 // indirect
 	sigs.k8s.io/controller-runtime v0.6.0
 	sigs.k8s.io/controller-tools v0.3.0
