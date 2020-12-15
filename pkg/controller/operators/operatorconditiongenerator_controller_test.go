@@ -17,7 +17,6 @@ import (
 	. "github.com/onsi/gomega"
 	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorsv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
-	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/testobj"
 )
 
 var _ = Describe("The OperatorConditionsGenerator Controller", func() {
@@ -37,7 +36,12 @@ var _ = Describe("The OperatorConditionsGenerator Controller", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		namespace = genName("ns-")
-		Expect(k8sClient.Create(ctx, testobj.WithName(namespace, &corev1.Namespace{}))).To(Succeed())
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: namespace,
+			},
+		}
+		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 	})
 
 	It("creates an OperatorCondition for a CSV without a ServiceAccount", func() {
