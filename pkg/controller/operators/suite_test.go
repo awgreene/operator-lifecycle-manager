@@ -143,16 +143,16 @@ var _ = BeforeSuite(func() {
 	Expect(operatorConditionReconciler.SetupWithManager(mgr)).ToNot(HaveOccurred())
 	Expect(operatorConditionGeneratorReconciler.SetupWithManager(mgr)).ToNot(HaveOccurred())
 
-	stop = make(chan struct{})
+	ctx := ctrl.SetupSignalHandler()
 	go func() {
 		defer GinkgoRecover()
 
 		By("Starting managed controllers")
-		err = mgr.Start(stop)
+		err := mgr.Start(ctx)
 		Expect(err).ToNot(HaveOccurred())
 	}()
 
-	Expect(mgr.GetCache().WaitForCacheSync(stop)).To(BeTrue(), "Cache sync failed on startup")
+	Expect(mgr.GetCache().WaitForCacheSync(ctx)).To(BeTrue(), "Cache sync failed on startup")
 
 	k8sClient = mgr.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
