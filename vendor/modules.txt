@@ -261,11 +261,17 @@ github.com/google/go-cmp/cmp/internal/value
 github.com/google/gofuzz
 # github.com/google/uuid v1.1.2
 github.com/google/uuid
-# github.com/googleapis/gnostic v0.5.1
+# github.com/googleapis/gnostic v0.5.1 => github.com/googleapis/gnostic v0.4.1
+github.com/googleapis/gnostic
 github.com/googleapis/gnostic/compiler
+github.com/googleapis/gnostic/discovery
 github.com/googleapis/gnostic/extensions
-github.com/googleapis/gnostic/jsonschema
+github.com/googleapis/gnostic/jsonwriter
+github.com/googleapis/gnostic/lib
 github.com/googleapis/gnostic/openapiv2
+github.com/googleapis/gnostic/openapiv3
+github.com/googleapis/gnostic/plugins
+github.com/googleapis/gnostic/surface
 # github.com/gorilla/mux v1.7.3
 github.com/gorilla/mux
 # github.com/gosuri/uitable v0.0.4

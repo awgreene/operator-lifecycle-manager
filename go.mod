@@ -14,6 +14,7 @@ require (
 	github.com/go-openapi/spec v0.19.4
 	github.com/golang/mock v1.4.1
 	github.com/google/go-cmp v0.5.2
+	github.com/googleapis/gnostic v0.5.1
 	github.com/irifrance/gini v1.0.1
 	github.com/itchyny/gojq v0.11.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.2.2
@@ -56,6 +57,8 @@ require (
 )
 
 replace (
+	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
+
 	// controller runtime
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20200331152225-585af27e34fd // release-4.5
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20200326155132-2a6cd50aedd0 // release-4.5

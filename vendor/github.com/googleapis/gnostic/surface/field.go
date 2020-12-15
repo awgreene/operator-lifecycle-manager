@@ -12,5 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package compiler provides support functions to generated compiler code.
-package compiler
+package surface_v1
+
+// ServiceType returns the Type associated with a field.
+func (f *Field) ServiceType(m *Model) *Type {
+	return m.TypeWithTypeName(f.NativeType)
+}

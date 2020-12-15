@@ -1,4 +1,4 @@
-// Copyright 2020 Google LLC. All Rights Reserved.
+// Copyright 2019 Google Inc. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openapi_v2
+package discovery_v1
 
-import "github.com/googleapis/gnostic/compiler"
+import (
+	"errors"
+	"log"
 
-// ParseDocument reads an OpenAPI v2 description from a YAML/JSON representation.
-func ParseDocument(b []byte) (*Document, error) {
-	info, err := compiler.ReadInfoFromBytes("", b)
+	"github.com/googleapis/gnostic/compiler"
+)
+
+func FetchDocumentBytes(documentURL string) ([]byte, error) {
+	return compiler.FetchFile(documentURL)
+}
+
+func ParseDocument(bytes []byte) (*Document, error) {
+	// Unpack the discovery document.
+	info, err := compiler.ReadInfoFromBytes("", bytes)
 	if err != nil {
 		return nil, err
 	}
-	return NewDocument(info.Content[0], compiler.NewContextWithExtensions("$root", nil, nil))
+	m, ok := compiler.UnpackMap(info)
+	if !ok {
+		log.Printf("%s", string(bytes))
+		return nil, errors.New("Invalid input")
+	}
+	return NewDocument(m, compiler.NewContext("$root", nil))
 }
