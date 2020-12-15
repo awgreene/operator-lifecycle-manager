@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
-	"github.com/operator-framework/operator-lifecycle-manager/pkg/lib/testobj"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -54,7 +53,12 @@ var _ = Describe("OperatorCondition", func() {
 		BeforeEach(func() {
 			ctx = context.Background()
 			namespace = genName("ns-")
-			Expect(k8sClient.Create(ctx, testobj.WithName(namespace, &corev1.Namespace{}))).To(Succeed())
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: namespace,
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 
 			namespacedName = types.NamespacedName{Name: "test", Namespace: namespace}
 
